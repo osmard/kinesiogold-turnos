@@ -62,6 +62,15 @@
 <script>
 // ── Audio / TTS ───────────────────────────────────────────────
 let audioCtx = null;
+let ttsVoices = [];
+
+function loadVoices() {
+  ttsVoices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+}
+if (window.speechSynthesis) {
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+  loadVoices();
+}
 
 function playDing() {
   if (!audioCtx) return;
@@ -82,13 +91,25 @@ function playDing() {
 
 function speak(text) {
   if (!window.speechSynthesis) return;
+  // Chrome bug: resume si quedó suspendido en background
   window.speechSynthesis.cancel();
-  const utt  = new SpeechSynthesisUtterance(text);
-  utt.lang   = 'es-ES';
-  utt.rate   = 0.92;
-  utt.pitch  = 1;
+  window.speechSynthesis.resume();
+
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang  = 'es-ES';
+  utt.rate  = 0.88;
+  utt.pitch = 1;
   utt.volume = 1;
-  setTimeout(() => window.speechSynthesis.speak(utt), 400);
+
+  // Seleccionar voz en español explícitamente
+  const voices = ttsVoices.length ? ttsVoices : window.speechSynthesis.getVoices();
+  const esVoice = voices.find(v => v.lang.startsWith('es-PY')) ||
+                  voices.find(v => v.lang.startsWith('es-AR')) ||
+                  voices.find(v => v.lang.startsWith('es'));
+  if (esVoice) utt.voice = esVoice;
+
+  // Esperar a que termine el ding (~700ms) antes de hablar
+  setTimeout(() => window.speechSynthesis.speak(utt), 800);
 }
 
 // ── Estado ────────────────────────────────────────────────────
