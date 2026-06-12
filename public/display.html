@@ -126,6 +126,15 @@ function initDisplay() {
   if (started) return;
   started = true;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Chrome bloquea TTS si no se inicializa durante un gesto del usuario.
+  // Llamar speak() vacío ahora desbloquea el sintetizador para siempre.
+  if (window.speechSynthesis) {
+    const primer = new SpeechSynthesisUtterance(' ');
+    primer.volume = 0;
+    window.speechSynthesis.speak(primer);
+  }
+
   document.getElementById('start-overlay').remove();
   initSocket();
   loadVideos();
