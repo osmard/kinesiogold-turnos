@@ -143,7 +143,7 @@ function updateClock() {
 
 // ── Socket ────────────────────────────────────────────────────
 function initSocket() {
-  const socket = io();
+  const socket = io({ reconnection: true, reconnectionDelay: 2000 });
 
   socket.on('connect', async () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -161,12 +161,9 @@ function initSocket() {
   socket.on('paciente:llamado', ({ nombre, consultorio, licenciado }) => {
     playDing();
     showOverlay(nombre, consultorio, licenciado);
-    speak(`${nombre}, por favor pasar al consultorio ${consultorio}, con ${licenciado}`);
+    speak(`${nombre}, por favor pasar al ${consultorio}, con ${licenciado}`);
   });
-
-  socket.on('disconnect', () => {
-    setTimeout(initSocket, 3000);
-  });
+  // socket.io reconecta automáticamente — no crear nueva instancia en disconnect
 }
 
 // ── Render ────────────────────────────────────────────────────
