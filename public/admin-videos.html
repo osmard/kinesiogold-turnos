@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KinesioGold — Videos</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold" class="logo">
+  <span class="header-title">Gestión de Videos</span>
+  <nav class="nav">
+    <a href="/admin.html" class="nav-link">Turnos</a>
+    <a href="/admin-videos.html" class="nav-link active">Videos</a>
+  </nav>
+</header>
+
+<main class="main">
+
+  <!-- Agregar video -->
+  <div class="card">
+    <h3>Agregar Video</h3>
+    <form id="add-form" onsubmit="addVideo(event)">
+      <div class="form-row">
+        <div class="form-group" style="flex:3;">
+          <label>URL del video *</label>
+          <input type="url" id="v-url" placeholder="https://youtube.com/watch?v=... o https://cdn.../video.mp4" required>
+        </div>
+        <div class="form-group" style="flex:0 0 100px;">
+          <label>Orden</label>
+          <input type="number" id="v-orden" value="0" min="0">
+        </div>
+        <div class="form-group" style="flex:0 0 auto;justify-content:flex-end;">
+          <label>Activo</label>
+          <select id="v-activo">
+            <option value="true">Sí</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-gold" style="margin-top:20px;">+ Agregar</button>
+      </div>
+    </form>
+    <div id="add-result"></div>
+  </div>
+
+  <!-- Tabla de videos -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>URL / Previsualización</th>
+          <th>Tipo</th>
+          <th style="text-align:center;">Orden</th>
+          <th style="text-align:center;">Activo</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="videos-body">
+        <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--color-text-muted);">Cargando...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<!-- Modal edición -->
+<div id="edit-modal" class="overlay hidden" style="z-index:500;" onclick="closeModal(event)">
+  <div class="card" style="width:560px;max-width:90vw;position:relative;" onclick="event.stopPropagation()">
+    <h3>Editar Video</h3>
+    <div class="form-row" style="flex-direction:column;gap:14px;">
+      <div class="form-group">
+        <label>URL *</label>
+        <input type="url" id="edit-url" style="width:100%;">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Orden</label>
+          <input type="number" id="edit-orden" min="0">
+        </div>
+        <div class="form-group">
+          <label>Activo</label>
+          <select id="edit-activo">
+            <option value="true">Sí</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-8 mt-12">
+      <button class="btn btn-gold" onclick="saveEdit()">Guardar</button>
+      <button class="btn btn-outline" onclick="document.getElementById('edit-modal').classList.add('hidden')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let editingId = null;
+
+async function loadVideos() {
+  const res  = await fetch('/api/videos');
+  const data = await res.json();
+  const tbody = document.getElementById('videos-body');
+
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--color-text-muted);">Sin videos cargados</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.map(v => {
+    const isYT   = v.url.includes('youtube') || v.url.includes('youtu.be');
+    const type   = isYT ? '▶ YouTube' : '🎬 MP4';
+    const urlShort = v.url.length > 60 ? v.url.slice(0, 57) + '...' : v.url;
+    return `
+      <tr id="row-${v.id}">
+        <td>${v.id}</td>
+        <td>
+          <a href="${v.url}" target="_blank" title="${v.url}" style="font-size:0.8rem;color:var(--color-accent);">${urlShort}</a>
+        </td>
+        <td><span style="font-size:0.8rem;color:var(--color-text-muted);">${type}</span></td>
+        <td style="text-align:center;">${v.orden}</td>
+        <td style="text-align:center;">
+          <span class="badge ${v.activo ? 'badge-esperando' : 'badge-pendiente'}">${v.activo ? 'Activo' : 'Inactivo'}</span>
+        </td>
+        <td>
+          <div class="flex gap-8">
+            <button class="btn btn-outline btn-sm" onclick="openEdit(${v.id}, '${v.url.replace(/'/g,"\\'")}', ${v.orden}, ${v.activo})">Editar</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteVideo(${v.id})">✕</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function addVideo(e) {
+  e.preventDefault();
+  const url   = document.getElementById('v-url').value.trim();
+  const orden = parseInt(document.getElementById('v-orden').value) || 0;
+  const activo = document.getElementById('v-activo').value === 'true';
+
+  const res  = await fetch('/api/videos', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ url, orden, activo })
+  });
+  const div = document.getElementById('add-result');
+  if (res.ok) {
+    div.innerHTML = '<div class="alert alert-success">✓ Video agregado</div>';
+    document.getElementById('v-url').value = '';
+    loadVideos();
+    setTimeout(() => { div.innerHTML = ''; }, 3000);
+  } else {
+    const err = await res.json();
+    div.innerHTML = `<div class="alert alert-error">${err.error}</div>`;
+  }
+}
+
+function openEdit(id, url, orden, activo) {
+  editingId = id;
+  document.getElementById('edit-url').value   = url;
+  document.getElementById('edit-orden').value  = orden;
+  document.getElementById('edit-activo').value = String(activo);
+  document.getElementById('edit-modal').classList.remove('hidden');
+}
+
+function closeModal(e) {
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+
+async function saveEdit() {
+  const url   = document.getElementById('edit-url').value.trim();
+  const orden = parseInt(document.getElementById('edit-orden').value) || 0;
+  const activo = document.getElementById('edit-activo').value === 'true';
+
+  await fetch(`/api/videos/${editingId}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ url, orden, activo })
+  });
+  document.getElementById('edit-modal').classList.add('hidden');
+  loadVideos();
+}
+
+async function deleteVideo(id) {
+  if (!confirm('¿Eliminar este video?')) return;
+  await fetch(`/api/videos/${id}`, { method: 'DELETE' });
+  loadVideos();
+}
+
+loadVideos();
+</script>
+</body>
+</html>

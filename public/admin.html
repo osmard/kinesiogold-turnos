@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KinesioGold — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold" class="logo">
+  <span class="header-title">Panel de Administración</span>
+  <nav class="nav">
+    <a href="/admin.html" class="nav-link active">Turnos</a>
+    <a href="/admin-videos.html" class="nav-link">Videos</a>
+  </nav>
+</header>
+
+<main class="main">
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('turnos', this)">Turnos del Día</button>
+    <button class="tab" onclick="switchTab('calendario', this)">Calendario</button>
+    <button class="tab" onclick="switchTab('importar', this)">Importar CSV</button>
+    <button class="tab" onclick="switchTab('licenciados', this)">Licenciados</button>
+  </div>
+
+  <!-- ── TAB: TURNOS ─────────────────────────────────────── -->
+  <div id="tab-turnos" class="tab-content active">
+
+    <!-- Controles de fecha -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="form-row" style="align-items:center;">
+        <div class="form-group" style="flex:0 0 auto;">
+          <label>Fecha</label>
+          <input type="date" id="fecha-input">
+        </div>
+        <button class="btn btn-outline" style="margin-top:20px;" onclick="loadPacientes()">Actualizar</button>
+        <a href="/display.html" target="_blank" class="btn btn-gold" style="margin-top:20px;">Ver Display</a>
+      </div>
+    </div>
+
+    <!-- Agregar turno -->
+    <div class="card">
+      <h3>Agregar Turno</h3>
+      <form id="add-form" onsubmit="addPaciente(event)">
+        <div class="form-row">
+          <div class="form-group" style="flex:2;">
+            <label>Nombre del paciente *</label>
+            <input type="text" name="nombre" placeholder="Ej: María González" required>
+          </div>
+          <div class="form-group" style="flex:2;">
+            <label>Licenciado *</label>
+            <select name="licenciado_id" required id="lic-select-add">
+              <option value="">— Seleccionar —</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>Hora turno</label>
+            <input type="time" name="hora_turno">
+          </div>
+          <button type="submit" class="btn btn-gold" style="margin-top:20px;">+ Agregar</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Tabla turnos -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Hora</th>
+            <th>Nombre</th>
+            <th>Licenciado</th>
+            <th>Consultorio</th>
+            <th>Estado</th>
+            <th>Llegada</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="pacientes-body">
+          <tr><td colspan="7" style="text-align:center;color:var(--color-text-muted);padding:32px;">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- ── TAB: CALENDARIO ────────────────────────────────── -->
+  <div id="tab-calendario" class="tab-content">
+    <div class="calendar-nav">
+      <button onclick="changeMonth(-1)">&#8592;</button>
+      <span id="calendar-title"></span>
+      <button onclick="changeMonth(1)">&#8594;</button>
+    </div>
+    <div class="calendar-grid" id="calendar-grid"></div>
+  </div>
+
+  <!-- ── TAB: IMPORTAR CSV ──────────────────────────────── -->
+  <div id="tab-importar" class="tab-content">
+    <div class="card" style="max-width:600px;">
+      <h3>Importar CSV masivo</h3>
+      <p class="text-muted text-sm" style="margin-bottom:16px;">
+        Columnas requeridas: <code style="color:var(--color-accent);">nombre, licenciado, fecha, hora_turno</code><br>
+        Fecha formato: <code style="color:var(--color-accent);">YYYY-MM-DD</code> &nbsp;|&nbsp;
+        Hora formato: <code style="color:var(--color-accent);">HH:MM</code> (opcional)
+      </p>
+      <form id="import-form" onsubmit="importCSV(event)">
+        <div class="form-row">
+          <input type="file" name="file" accept=".csv" required style="flex:1;">
+          <button type="submit" class="btn btn-gold">Importar</button>
+        </div>
+      </form>
+      <div id="import-result"></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: LICENCIADOS ───────────────────────────────── -->
+  <div id="tab-licenciados" class="tab-content">
+    <div class="card" style="max-width:560px;">
+      <h3>Agregar Licenciado</h3>
+      <form onsubmit="addLicenciado(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nombre completo *</label>
+            <input type="text" id="lic-nombre" placeholder="Ej: Lic. Ana Torres" required>
+          </div>
+          <div class="form-group">
+            <label>Consultorio *</label>
+            <input type="text" id="lic-consultorio" placeholder="Ej: Consultorio 2" required>
+          </div>
+          <button type="submit" class="btn btn-gold" style="margin-top:20px;">+ Agregar</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="table-wrap" style="max-width:600px;">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Nombre</th><th>Consultorio</th><th>Panel</th><th></th></tr>
+        </thead>
+        <tbody id="lic-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── Estado ────────────────────────────────────────────────────
+let licenciados = [];
+let calendarDate = new Date();
+
+// ── Init ──────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('fecha-input').value = today;
+  loadLicenciados().then(loadPacientes);
+  calendarDate = new Date();
+});
+
+// ── Tabs ──────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'calendario') renderCalendar();
+  if (name === 'licenciados') loadLicenciadosTable();
+}
+
+// ── Licenciados ───────────────────────────────────────────────
+async function loadLicenciados() {
+  const res = await fetch('/api/licenciados');
+  licenciados = await res.json();
+  const sel = document.getElementById('lic-select-add');
+  sel.innerHTML = '<option value="">— Seleccionar —</option>';
+  licenciados.forEach(l => {
+    const o = new Option(`${l.nombre} (${l.consultorio})`, l.id);
+    sel.appendChild(o);
+  });
+}
+
+async function loadLicenciadosTable() {
+  await loadLicenciados();
+  const tbody = document.getElementById('lic-body');
+  tbody.innerHTML = licenciados.map(l => `
+    <tr>
+      <td>${l.id}</td>
+      <td>${l.nombre}</td>
+      <td>${l.consultorio}</td>
+      <td><a href="/licenciado.html?id=${l.id}" target="_blank" class="btn btn-outline btn-sm">Abrir panel</a></td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteLicenciado(${l.id})">Eliminar</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted);">Sin licenciados</td></tr>';
+}
+
+async function addLicenciado(e) {
+  e.preventDefault();
+  const nombre      = document.getElementById('lic-nombre').value.trim();
+  const consultorio = document.getElementById('lic-consultorio').value.trim();
+  await fetch('/api/licenciados', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nombre, consultorio}) });
+  document.getElementById('lic-nombre').value = '';
+  document.getElementById('lic-consultorio').value = '';
+  loadLicenciadosTable();
+  loadLicenciados();
+}
+
+async function deleteLicenciado(id) {
+  if (!confirm('¿Eliminar licenciado y sus turnos?')) return;
+  await fetch(`/api/licenciados/${id}`, { method:'DELETE' });
+  loadLicenciadosTable();
+  loadLicenciados();
+}
+
+// ── Pacientes ─────────────────────────────────────────────────
+async function loadPacientes() {
+  const fecha = document.getElementById('fecha-input').value;
+  const res   = await fetch(`/api/pacientes?fecha=${fecha}`);
+  const data  = await res.json();
+  renderTable(data);
+}
+
+function renderTable(pacientes) {
+  const tbody = document.getElementById('pacientes-body');
+  if (!pacientes.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--color-text-muted);padding:32px;">Sin turnos para este día</td></tr>';
+    return;
+  }
+  tbody.innerHTML = pacientes.map(p => `
+    <tr>
+      <td>${p.hora_turno ? p.hora_turno.slice(0,5) : '—'}</td>
+      <td class="bold">${p.nombre}</td>
+      <td>${p.licenciado_nombre}</td>
+      <td>${p.consultorio}</td>
+      <td><span class="badge badge-${p.estado}">${p.estado}</span></td>
+      <td class="text-sm text-muted">${p.hora_llegada ? new Date(p.hora_llegada).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}) : '—'}</td>
+      <td>
+        <div class="flex gap-8">
+          ${p.estado === 'pendiente' ? `<button class="btn btn-success btn-sm" onclick="marcarLlegada(${p.id})">✓ Llegó</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="eliminar(${p.id})">✕</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function addPaciente(e) {
+  e.preventDefault();
+  const fd    = new FormData(e.target);
+  const fecha = document.getElementById('fecha-input').value;
+  await fetch('/api/pacientes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      nombre:        fd.get('nombre'),
+      licenciado_id: fd.get('licenciado_id'),
+      fecha,
+      hora_turno:    fd.get('hora_turno') || null
+    })
+  });
+  e.target.reset();
+  document.getElementById('lic-select-add').value = '';
+  document.getElementById('fecha-input').value = fecha;
+  loadPacientes();
+}
+
+async function marcarLlegada(id) {
+  await fetch(`/api/pacientes/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ estado: 'esperando', hora_llegada: new Date().toISOString() })
+  });
+  loadPacientes();
+}
+
+async function eliminar(id) {
+  if (!confirm('¿Eliminar este turno?')) return;
+  await fetch(`/api/pacientes/${id}`, { method: 'DELETE' });
+  loadPacientes();
+}
+
+// ── Importar CSV ──────────────────────────────────────────────
+async function importCSV(e) {
+  e.preventDefault();
+  const fd  = new FormData(e.target);
+  const res = await fetch('/api/turnos/import', { method: 'POST', body: fd });
+  const data = await res.json();
+  const div  = document.getElementById('import-result');
+  if (data.error) {
+    div.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
+  } else {
+    div.innerHTML = `<div class="alert alert-success">✓ ${data.imported} de ${data.total} turnos importados correctamente</div>`;
+    loadPacientes();
+  }
+}
+
+// ── Calendario ────────────────────────────────────────────────
+async function renderCalendar() {
+  const year  = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+  const mm    = String(month + 1).padStart(2, '0');
+  const key   = `${year}-${mm}`;
+
+  document.getElementById('calendar-title').textContent =
+    new Date(year, month, 1).toLocaleDateString('es-PY', { month: 'long', year: 'numeric' });
+
+  const counts = await fetch(`/api/pacientes/calendar?month=${key}`).then(r => r.json());
+
+  const today   = new Date().toISOString().slice(0, 10);
+  const selDate = document.getElementById('fecha-input').value;
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Dom
+  const days     = new Date(year, month + 1, 0).getDate();
+
+  const days_es = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  let html = days_es.map(d => `<div class="cal-header">${d}</div>`).join('');
+
+  for (let i = 0; i < firstDay; i++) html += `<div class="cal-day empty"></div>`;
+
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${key}-${String(d).padStart(2,'0')}`;
+    const count   = counts[dateStr] || 0;
+    const cls     = [
+      'cal-day',
+      dateStr === today   ? 'today'    : '',
+      dateStr === selDate ? 'selected' : ''
+    ].filter(Boolean).join(' ');
+    html += `
+      <div class="${cls}" onclick="selectDay('${dateStr}')">
+        <span class="cal-day-num">${d}</span>
+        ${count ? `<span class="cal-count">${count}</span>` : ''}
+      </div>`;
+  }
+
+  document.getElementById('calendar-grid').innerHTML = html;
+}
+
+function selectDay(dateStr) {
+  document.getElementById('fecha-input').value = dateStr;
+  switchTab('turnos', document.querySelector('.tab[onclick*="turnos"]'));
+  loadPacientes();
+}
+
+function changeMonth(delta) {
+  calendarDate.setMonth(calendarDate.getMonth() + delta);
+  renderCalendar();
+}
+</script>
+</body>
+</html>

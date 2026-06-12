@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KinesioGold — Display</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body { overflow: hidden; cursor: none; }
+    body.cursor-visible { cursor: default; }
+  </style>
+</head>
+<body class="display-body">
+
+<!-- Pantalla de inicio: requiere click para activar audio -->
+<div class="start-overlay" id="start-overlay" onclick="initDisplay()">
+  <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold">
+  <p>Toca para iniciar el display</p>
+</div>
+
+<header class="display-header">
+  <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold" class="logo">
+  <div style="text-align:right;">
+    <div id="clock" style="font-size:2rem;font-weight:800;color:var(--color-accent);"></div>
+    <div class="display-date" id="display-date"></div>
+  </div>
+</header>
+
+<div class="display-content">
+
+  <!-- Lista de pacientes esperando -->
+  <div class="display-list" id="patient-list-wrap">
+    <div class="display-section-title">Pacientes en espera</div>
+    <div id="patient-list"></div>
+  </div>
+
+  <!-- Sin pacientes / no iniciado -->
+  <div class="no-patients hidden" id="no-patients">
+    <span style="font-size:3rem;opacity:0.2;">⏳</span>
+    <span style="margin-top:12px;">Sin pacientes en espera</span>
+  </div>
+
+  <!-- Carrusel de videos -->
+  <div class="carousel-wrap hidden" id="carousel-wrap">
+    <video id="carousel-video" autoplay muted playsinline style="display:none;"></video>
+    <iframe id="carousel-iframe" frameborder="0" allowfullscreen allow="autoplay; encrypted-media"
+            style="display:none;"></iframe>
+  </div>
+
+</div>
+
+<!-- Overlay de llamado -->
+<div class="overlay hidden" id="call-overlay">
+  <div class="overlay-pulse"></div>
+  <div class="overlay-badge">&#128266; Llamando al paciente</div>
+  <div class="overlay-name" id="overlay-name"></div>
+  <div class="overlay-detail" id="overlay-detail"></div>
+  <div class="overlay-bar" id="overlay-bar"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+// ── Audio / TTS ───────────────────────────────────────────────
+let audioCtx = null;
+
+function playDing() {
+  if (!audioCtx) return;
+  [[880, 0], [1108, 0.18], [880, 0.36]].forEach(([freq, delay]) => {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const t = audioCtx.currentTime + delay;
+    gain.gain.setValueAtTime(0.45, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    osc.start(t);
+    osc.stop(t + 0.28);
+  });
+}
+
+function speak(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utt  = new SpeechSynthesisUtterance(text);
+  utt.lang   = 'es-ES';
+  utt.rate   = 0.92;
+  utt.pitch  = 1;
+  utt.volume = 1;
+  setTimeout(() => window.speechSynthesis.speak(utt), 400);
+}
+
+// ── Estado ────────────────────────────────────────────────────
+let esperando     = [];
+let overlayActive = false;
+let overlayTimer  = null;
+let videos        = [];
+let carouselIdx   = 0;
+let carouselTimer = null;
+let started       = false;
+
+// ── Init ──────────────────────────────────────────────────────
+function initDisplay() {
+  if (started) return;
+  started = true;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  document.getElementById('start-overlay').remove();
+  initSocket();
+  loadVideos();
+  updateClock();
+  setInterval(updateClock, 1000);
+}
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('display-date').textContent =
+    now.toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+// ── Socket ────────────────────────────────────────────────────
+function initSocket() {
+  const socket = io();
+
+  socket.on('connect', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const res   = await fetch(`/api/pacientes?fecha=${today}`);
+    const all   = await res.json();
+    esperando   = all.filter(p => p.estado === 'esperando');
+    renderDisplay();
+  });
+
+  socket.on('pacientes:updated', ({ pacientes }) => {
+    esperando = pacientes.filter(p => p.estado === 'esperando');
+    renderDisplay();
+  });
+
+  socket.on('paciente:llamado', ({ nombre, consultorio, licenciado }) => {
+    playDing();
+    showOverlay(nombre, consultorio, licenciado);
+    speak(`${nombre}, por favor pasar al consultorio ${consultorio}, con ${licenciado}`);
+  });
+
+  socket.on('disconnect', () => {
+    setTimeout(initSocket, 3000);
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────
+function renderDisplay() {
+  const list    = document.getElementById('patient-list');
+  const wrap    = document.getElementById('patient-list-wrap');
+  const noP     = document.getElementById('no-patients');
+  const carousel = document.getElementById('carousel-wrap');
+
+  if (overlayActive) return;
+
+  if (esperando.length > 0) {
+    carousel.classList.add('hidden');
+    stopCarousel();
+    noP.classList.add('hidden');
+    wrap.classList.remove('hidden');
+    list.innerHTML = esperando.map(p => `
+      <div class="patient-card">
+        <div>
+          <div class="patient-name">${p.nombre}</div>
+          <div class="patient-info">
+            Consultorio <span>${p.consultorio}</span> &nbsp;·&nbsp;
+            Lic. <span>${p.licenciado_nombre}</span>
+          </div>
+        </div>
+        <span class="badge badge-esperando">En espera</span>
+      </div>
+    `).join('');
+  } else {
+    wrap.classList.add('hidden');
+    noP.classList.add('hidden');
+    if (videos.length > 0) {
+      carousel.classList.remove('hidden');
+      startCarousel();
+    } else {
+      carousel.classList.add('hidden');
+      noP.classList.remove('hidden');
+    }
+  }
+}
+
+// ── Overlay de llamado ────────────────────────────────────────
+function showOverlay(nombre, consultorio, licenciado) {
+  clearTimeout(overlayTimer);
+  overlayActive = true;
+
+  document.getElementById('overlay-name').textContent   = nombre;
+  document.getElementById('overlay-detail').textContent =
+    `Consultorio ${consultorio} · Lic. ${licenciado}`;
+
+  const bar = document.getElementById('overlay-bar');
+  bar.style.animation = 'none';
+  bar.offsetHeight; // reflow
+  bar.style.animation = 'progressBar 10s linear forwards';
+
+  document.getElementById('call-overlay').classList.remove('hidden');
+
+  overlayTimer = setTimeout(() => {
+    document.getElementById('call-overlay').classList.add('hidden');
+    overlayActive = false;
+    renderDisplay();
+  }, 10000);
+}
+
+// ── Carrusel ──────────────────────────────────────────────────
+async function loadVideos() {
+  const res = await fetch('/api/videos?activo=true');
+  videos    = await res.json();
+}
+
+function isYoutube(url) {
+  return url.includes('youtube.com') || url.includes('youtu.be');
+}
+
+function youtubeEmbedUrl(url) {
+  const m = url.match(/(?:v=|youtu\.be\/|embed\/)([^&?/]+)/);
+  if (!m) return url;
+  return `https://www.youtube.com/embed/${m[1]}?autoplay=1&mute=1&controls=0&loop=1&playlist=${m[1]}&modestbranding=1`;
+}
+
+function startCarousel() {
+  if (!videos.length) return;
+  playVideoAt(carouselIdx % videos.length);
+}
+
+function stopCarousel() {
+  clearTimeout(carouselTimer);
+  const vid = document.getElementById('carousel-video');
+  const ifr = document.getElementById('carousel-iframe');
+  vid.pause(); vid.src = '';
+  ifr.src = '';
+  vid.style.display = 'none';
+  ifr.style.display = 'none';
+}
+
+function playVideoAt(idx) {
+  if (!videos.length || overlayActive || esperando.length > 0) return;
+  carouselIdx = idx;
+  const v   = videos[idx];
+  const vid = document.getElementById('carousel-video');
+  const ifr = document.getElementById('carousel-iframe');
+
+  if (isYoutube(v.url)) {
+    vid.style.display = 'none'; vid.pause(); vid.src = '';
+    ifr.style.display = 'block';
+    ifr.src = youtubeEmbedUrl(v.url);
+    clearTimeout(carouselTimer);
+    carouselTimer = setTimeout(() => playVideoAt((idx + 1) % videos.length), 30000);
+  } else {
+    ifr.style.display = 'none'; ifr.src = '';
+    vid.style.display = 'block';
+    vid.src = v.url;
+    vid.play().catch(() => {});
+    vid.onended = () => playVideoAt((idx + 1) % videos.length);
+  }
+}
+</script>
+</body>
+</html>

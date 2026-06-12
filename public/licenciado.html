@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KinesioGold — Panel Licenciado</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="lic-header">
+  <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold" class="logo">
+  <div>
+    <div class="lic-title" id="lic-name">Cargando...</div>
+    <div class="lic-sub" id="lic-consultorio"></div>
+  </div>
+  <div style="margin-left:auto;text-align:right;">
+    <div id="lic-clock" style="font-size:1.6rem;font-weight:800;color:var(--color-accent);"></div>
+    <div class="text-muted text-sm" id="lic-date"></div>
+  </div>
+</header>
+
+<div style="padding:20px 32px 0;">
+  <div class="flex gap-8" style="align-items:center;margin-bottom:16px;">
+    <span class="text-muted text-sm">Pacientes en espera hoy</span>
+    <span id="count-badge" class="badge badge-esperando" style="display:none;">0</span>
+  </div>
+</div>
+
+<div id="patient-grid" class="lic-grid"></div>
+
+<div id="no-patients" class="no-patients hidden" style="height:50vh;">
+  <span style="font-size:2.5rem;opacity:0.2;">✓</span>
+  <span style="margin-top:8px;">Sin pacientes en espera</span>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const licId  = parseInt(params.get('id'));
+
+if (!licId) {
+  document.body.innerHTML = '<div style="padding:60px;text-align:center;font-size:1.2rem;color:#E53935;">URL inválida. Usá /licenciado.html?id=X</div>';
+  throw new Error('No licenciado id');
+}
+
+let myPacientes = [];
+let socket;
+
+// ── Clock ─────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('lic-clock').textContent =
+    now.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('lic-date').textContent =
+    now.toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── Init ──────────────────────────────────────────────────────
+async function init() {
+  const res  = await fetch('/api/licenciados');
+  const lics = await res.json();
+  const lic  = lics.find(l => l.id === licId);
+  if (!lic) {
+    document.body.innerHTML = '<div style="padding:60px;text-align:center;color:#E53935;">Licenciado no encontrado</div>';
+    return;
+  }
+  document.title = `KinesioGold — ${lic.nombre}`;
+  document.getElementById('lic-name').textContent = lic.nombre;
+  document.getElementById('lic-consultorio').textContent = `Consultorio ${lic.consultorio}`;
+  loadPacientes();
+  initSocket();
+}
+
+async function loadPacientes() {
+  const today = new Date().toISOString().slice(0, 10);
+  const res   = await fetch(`/api/pacientes?fecha=${today}&licenciado_id=${licId}`);
+  const all   = await res.json();
+  myPacientes = all.filter(p => p.estado === 'esperando');
+  render();
+}
+
+function render() {
+  const grid = document.getElementById('patient-grid');
+  const noP  = document.getElementById('no-patients');
+  const badge = document.getElementById('count-badge');
+
+  badge.textContent    = myPacientes.length;
+  badge.style.display  = myPacientes.length ? 'inline-block' : 'none';
+
+  if (!myPacientes.length) {
+    grid.innerHTML = '';
+    noP.classList.remove('hidden');
+    return;
+  }
+
+  noP.classList.add('hidden');
+  grid.innerHTML = myPacientes.map(p => `
+    <div class="lic-card" id="card-${p.id}">
+      <div>
+        <div class="lic-card-name">${p.nombre}</div>
+        <div class="lic-card-time text-muted">
+          ${p.hora_turno ? '🕐 Turno ' + p.hora_turno.slice(0,5) : ''}
+          ${p.hora_llegada ? '· Llegó ' + new Date(p.hora_llegada).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}) : ''}
+        </div>
+      </div>
+      <button class="btn btn-gold" onclick="llamar(${p.id}, '${p.nombre}')">
+        📢 Llamar
+      </button>
+    </div>
+  `).join('');
+}
+
+async function llamar(id, nombre) {
+  const btn = document.querySelector(`#card-${id} button`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Llamando...'; }
+
+  await fetch(`/api/pacientes/${id}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ estado: 'llamado', hora_llamado: new Date().toISOString() })
+  });
+
+  // Quitar de la lista local inmediatamente
+  myPacientes = myPacientes.filter(p => p.id !== id);
+  render();
+}
+
+function initSocket() {
+  socket = io();
+  socket.on('pacientes:updated', ({ pacientes }) => {
+    myPacientes = pacientes.filter(p => p.estado === 'esperando' && p.licenciado_id === licId);
+    render();
+  });
+}
+
+init();
+</script>
+</body>
+</html>
