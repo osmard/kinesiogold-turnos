@@ -78,7 +78,7 @@ async function loadPacientes() {
   const today = new Date().toISOString().slice(0, 10);
   const res   = await fetch(`/api/pacientes?fecha=${today}&licenciado_id=${licId}`);
   const all   = await res.json();
-  myPacientes = all.filter(p => p.estado === 'esperando');
+  myPacientes = all.filter(p => p.estado === 'esperando' || p.estado === 'llamado');
   render();
 }
 
@@ -97,33 +97,55 @@ function render() {
   }
 
   noP.classList.add('hidden');
-  grid.innerHTML = myPacientes.map(p => `
-    <div class="lic-card" id="card-${p.id}">
-      <div>
-        <div class="lic-card-name">${p.nombre}</div>
-        <div class="lic-card-time text-muted">
-          ${p.hora_turno ? '🕐 Turno ' + p.hora_turno.slice(0,5) : ''}
-          ${p.hora_llegada ? '· Llegó ' + new Date(p.hora_llegada).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}) : ''}
-        </div>
-      </div>
-      <button class="btn btn-gold" onclick="llamar(${p.id}, '${p.nombre}')">
-        📢 Llamar
-      </button>
-    </div>
-  `).join('');
+  grid.innerHTML = myPacientes.map(p => {
+    const info = `
+      <div class="lic-card-name">${p.nombre}</div>
+      <div class="lic-card-time text-muted">
+        ${p.hora_turno ? '🕐 Turno ' + p.hora_turno.slice(0,5) : ''}
+        ${p.hora_llegada ? '· Llegó ' + new Date(p.hora_llegada).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}) : ''}
+      </div>`;
+    const btns = p.estado === 'llamado'
+      ? `<div class="flex gap-8">
+           <button class="btn btn-outline" onclick="volverLlamar(${p.id})">🔁 Volver a llamar</button>
+           <button class="btn btn-success" onclick="marcarListo(${p.id})">✓ Listo</button>
+         </div>`
+      : `<button class="btn btn-gold" onclick="llamar(${p.id})">📢 Llamar</button>`;
+    const border = p.estado === 'llamado' ? 'border:1.5px solid var(--color-accent);opacity:0.7;' : '';
+    return `<div class="lic-card" id="card-${p.id}" style="${border}"><div>${info}</div>${btns}</div>`;
+  }).join('');
 }
 
-async function llamar(id, nombre) {
-  const btn = document.querySelector(`#card-${id} button`);
+async function llamar(id) {
+  const btn = document.querySelector(`#card-${id} .btn-gold`);
   if (btn) { btn.disabled = true; btn.textContent = 'Llamando...'; }
-
   await fetch(`/api/pacientes/${id}`, {
     method:  'PUT',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ estado: 'llamado', hora_llamado: new Date().toISOString() })
   });
+  // El socket actualizará la lista; renderizamos igual por si acaso
+  const p = myPacientes.find(p => p.id === id);
+  if (p) p.estado = 'llamado';
+  render();
+}
 
-  // Quitar de la lista local inmediatamente
+async function volverLlamar(id) {
+  const btn = document.querySelector(`#card-${id} .btn-outline`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Llamando...'; }
+  await fetch(`/api/pacientes/${id}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ estado: 'llamado', hora_llamado: new Date().toISOString() })
+  });
+  if (btn) { btn.disabled = false; btn.textContent = '🔁 Volver a llamar'; }
+}
+
+async function marcarListo(id) {
+  await fetch(`/api/pacientes/${id}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ estado: 'atendido' })
+  });
   myPacientes = myPacientes.filter(p => p.id !== id);
   render();
 }
@@ -131,7 +153,9 @@ async function llamar(id, nombre) {
 function initSocket() {
   socket = io();
   socket.on('pacientes:updated', ({ pacientes }) => {
-    myPacientes = pacientes.filter(p => p.estado === 'esperando' && p.licenciado_id === licId);
+    myPacientes = pacientes.filter(p =>
+      (p.estado === 'esperando' || p.estado === 'llamado') && p.licenciado_id === licId
+    );
     render();
   });
 }
