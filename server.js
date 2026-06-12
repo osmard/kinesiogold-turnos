@@ -7,6 +7,7 @@ const multer    = require('multer');
 const csv       = require('csv-parser');
 const { PassThrough } = require('stream');
 const path      = require('path');
+const gtts      = require('node-gtts')('es');
 
 const app    = express();
 const server = http.createServer(app);
@@ -198,6 +199,16 @@ app.post('/api/turnos/import', upload.single('file'), (req, res) => {
       } catch (e) { res.status(500).json({ error: e.message }); }
     })
     .on('error', e => res.status(500).json({ error: e.message }));
+});
+
+// ── TTS ───────────────────────────────────────────────────────────────────────
+
+app.get('/api/tts', (req, res) => {
+  const text = (req.query.text || '').slice(0, 300);
+  if (!text) return res.status(400).end();
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Cache-Control', 'no-store');
+  gtts.stream(text).pipe(res);
 });
 
 // ── VIDEOS ────────────────────────────────────────────────────────────────────

@@ -62,15 +62,6 @@
 <script>
 // ── Audio / TTS ───────────────────────────────────────────────
 let audioCtx = null;
-let ttsVoices = [];
-
-function loadVoices() {
-  ttsVoices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-}
-if (window.speechSynthesis) {
-  window.speechSynthesis.onvoiceschanged = loadVoices;
-  loadVoices();
-}
 
 function playDing() {
   if (!audioCtx) return;
@@ -89,27 +80,12 @@ function playDing() {
   });
 }
 
+// Genera audio en el servidor y lo reproduce — funciona en Smart TV y cualquier navegador
 function speak(text) {
-  if (!window.speechSynthesis) return;
-  // Chrome bug: resume si quedó suspendido en background
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.resume();
-
-  const utt = new SpeechSynthesisUtterance(text);
-  utt.lang  = 'es-ES';
-  utt.rate  = 0.88;
-  utt.pitch = 1;
-  utt.volume = 1;
-
-  // Seleccionar voz en español explícitamente
-  const voices = ttsVoices.length ? ttsVoices : window.speechSynthesis.getVoices();
-  const esVoice = voices.find(v => v.lang.startsWith('es-PY')) ||
-                  voices.find(v => v.lang.startsWith('es-AR')) ||
-                  voices.find(v => v.lang.startsWith('es'));
-  if (esVoice) utt.voice = esVoice;
-
-  // Esperar a que termine el ding (~700ms) antes de hablar
-  setTimeout(() => window.speechSynthesis.speak(utt), 800);
+  const url   = '/api/tts?text=' + encodeURIComponent(text);
+  const audio = new Audio(url);
+  // Esperar a que termine el ding antes de hablar
+  setTimeout(() => audio.play().catch(() => {}), 800);
 }
 
 // ── Estado ────────────────────────────────────────────────────
@@ -132,25 +108,8 @@ function initDisplay() {
   updateClock();
   setInterval(updateClock, 1000);
 
-  // Inicializar TTS dentro del gesto del usuario con frase audible.
-  // Chrome rechaza speak() silencioso (volume=0) como "primer".
-  if (window.speechSynthesis) {
-    const voices = window.speechSynthesis.getVoices();
-    const u = new SpeechSynthesisUtterance('Sistema listo');
-    u.lang   = 'es-ES';
-    u.volume = 0.3;
-    u.rate   = 1.1;
-    const v  = voices.find(v => v.lang.startsWith('es-AR')) ||
-               voices.find(v => v.lang.startsWith('es'));
-    if (v) u.voice = v;
-    window.speechSynthesis.speak(u);
-
-    // Chrome suspende el sintetizador cuando la pestaña está inactiva.
-    // Este intervalo lo mantiene vivo.
-    setInterval(() => {
-      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-    }, 5000);
-  }
+  // Confirmar que el audio funciona al activar
+  speak('Sistema listo');
 }
 
 function updateClock() {
