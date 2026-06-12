@@ -126,20 +126,31 @@ function initDisplay() {
   if (started) return;
   started = true;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-  // Chrome bloquea TTS si no se inicializa durante un gesto del usuario.
-  // Llamar speak() vacío ahora desbloquea el sintetizador para siempre.
-  if (window.speechSynthesis) {
-    const primer = new SpeechSynthesisUtterance(' ');
-    primer.volume = 0;
-    window.speechSynthesis.speak(primer);
-  }
-
   document.getElementById('start-overlay').remove();
   initSocket();
   loadVideos();
   updateClock();
   setInterval(updateClock, 1000);
+
+  // Inicializar TTS dentro del gesto del usuario con frase audible.
+  // Chrome rechaza speak() silencioso (volume=0) como "primer".
+  if (window.speechSynthesis) {
+    const voices = window.speechSynthesis.getVoices();
+    const u = new SpeechSynthesisUtterance('Sistema listo');
+    u.lang   = 'es-ES';
+    u.volume = 0.3;
+    u.rate   = 1.1;
+    const v  = voices.find(v => v.lang.startsWith('es-AR')) ||
+               voices.find(v => v.lang.startsWith('es'));
+    if (v) u.voice = v;
+    window.speechSynthesis.speak(u);
+
+    // Chrome suspende el sintetizador cuando la pestaña está inactiva.
+    // Este intervalo lo mantiene vivo.
+    setInterval(() => {
+      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+    }, 5000);
+  }
 }
 
 function updateClock() {
