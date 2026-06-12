@@ -11,9 +11,12 @@ const path      = require('path');
 const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server);
-const pool   = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+const dbUrl = process.env.DATABASE_URL || '';
+const pool  = new Pool({
+  connectionString: dbUrl,
+  ssl: (process.env.NODE_ENV === 'production' && !dbUrl.includes('.railway.internal'))
+    ? { rejectUnauthorized: false }
+    : false
 });
 const upload = multer({ storage: multer.memoryStorage() });
 
