@@ -7,12 +7,106 @@
   <link rel="stylesheet" href="/css/style.css">
   <style>
     body { overflow: hidden; cursor: none; }
-    body.cursor-visible { cursor: default; }
+
+    /* ── Layout principal ── */
+    .display-body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .display-content {
+      display: flex;
+      flex-direction: row;
+      flex: 1;
+      overflow: hidden;
+      /* sobrescribe el position:relative del CSS global */
+      position: static !important;
+    }
+
+    /* ── Panel de video (izquierda, siempre visible) ── */
+    .video-panel {
+      flex: 0 0 46%;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-right: 1px solid var(--color-border);
+      position: relative;
+    }
+
+    .video-panel video,
+    .video-panel iframe {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border: none;
+    }
+
+    .video-panel .no-video-msg {
+      color: var(--color-text-muted);
+      font-size: 0.95rem;
+      text-align: center;
+      padding: 24px;
+    }
+
+    /* ── Columna de pacientes (derecha) ── */
+    .patients-column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .display-panel {
+      flex: 1;
+      padding: 24px 32px;
+      overflow-y: auto;
+    }
+
+    .display-panel + .display-panel {
+      border-top: 1px solid var(--color-border);
+    }
+
+    /* ── Cards "en consultorio" ── */
+    .en-consultorio-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--color-secondary);
+      border: 1px solid var(--color-border);
+      border-left: 4px solid #5C6BC0;
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      margin-bottom: 10px;
+      animation: slideIn 0.3s ease;
+    }
+
+    .en-consultorio-card .ec-name { font-size: 1.3rem; font-weight: 800; }
+    .en-consultorio-card .ec-info { font-size: 0.85rem; color: var(--color-text-muted); margin-top: 3px; }
+    .en-consultorio-card .ec-info span { color: #5C6BC0; font-weight: 600; }
+
+    .ec-badge {
+      background: #5C6BC0; color: #fff;
+      font-size: 0.7rem; font-weight: 700;
+      padding: 3px 10px; border-radius: 20px;
+      text-transform: uppercase; letter-spacing: .05em;
+      white-space: nowrap;
+    }
+
+    /* patient cards más compactas para que quepan más */
+    .patient-card {
+      padding: 14px 20px;
+      margin-bottom: 8px;
+    }
+
+    .patient-name { font-size: 1.5rem; }
   </style>
 </head>
 <body class="display-body">
 
-<!-- Pantalla de inicio: requiere click para activar audio -->
+<!-- Pantalla de inicio -->
 <div class="start-overlay" id="start-overlay" onclick="initDisplay()">
   <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold">
   <p>Toca para iniciar el display</p>
@@ -28,25 +122,37 @@
 
 <div class="display-content">
 
-  <!-- Lista de pacientes esperando -->
-  <div class="display-list" id="patient-list-wrap">
-    <div class="display-section-title">Pacientes en espera</div>
-    <div id="patient-list"></div>
+  <!-- Panel izquierdo: video — NUNCA se toca desde socket/renderPatients -->
+  <div class="video-panel" id="panel-video">
+    <video id="carousel-video" autoplay muted playsinline preload="auto"
+           style="width:100%;height:100%;object-fit:contain;"></video>
+    <div class="no-video-msg hidden" id="no-video">Sin videos configurados</div>
   </div>
 
-  <!-- Sin pacientes / no iniciado -->
-  <div class="no-patients hidden" id="no-patients">
-    <span style="font-size:3rem;opacity:0.2;">⏳</span>
-    <span style="margin-top:12px;">Sin pacientes en espera</span>
-  </div>
+  <!-- Columna derecha: pacientes — único contenedor actualizado por socket -->
+  <div class="patients-column" id="panel-pacientes">
 
-  <!-- Carrusel de videos -->
-  <div class="carousel-wrap hidden" id="carousel-wrap">
-    <video id="carousel-video" autoplay muted playsinline style="display:none;"></video>
-    <iframe id="carousel-iframe" frameborder="0" allowfullscreen allow="autoplay; encrypted-media"
-            style="display:none;"></iframe>
-  </div>
+    <!-- Sección superior: en espera -->
+    <div class="display-panel" id="panel-esperando">
+      <div class="display-section-title">Pacientes en espera</div>
+      <div id="patient-list"></div>
+      <div class="no-patients hidden" id="no-patients" style="height:auto;padding:24px 0;">
+        <span style="font-size:2rem;opacity:0.2;">⏳</span>
+        <span style="margin-top:8px;font-size:1rem;">Sin pacientes en espera</span>
+      </div>
+    </div>
 
+    <!-- Sección inferior: en consultorio -->
+    <div class="display-panel" id="panel-consultorio">
+      <div class="display-section-title">En consultorio</div>
+      <div id="consultorio-list"></div>
+      <div class="no-patients hidden" id="no-en-consultorio" style="height:auto;padding:24px 0;">
+        <span style="font-size:2rem;opacity:0.2;">🏥</span>
+        <span style="margin-top:8px;font-size:1rem;">Sin pacientes en atención</span>
+      </div>
+    </div>
+
+  </div>
 </div>
 
 <!-- Overlay de llamado -->
@@ -80,22 +186,21 @@ function playDing() {
   });
 }
 
-// Genera audio en el servidor y lo reproduce — funciona en Smart TV y cualquier navegador
 function speak(text) {
   const url   = '/api/tts?text=' + encodeURIComponent(text);
   const audio = new Audio(url);
-  // Esperar a que termine el ding antes de hablar
   setTimeout(() => audio.play().catch(() => {}), 800);
 }
 
 // ── Estado ────────────────────────────────────────────────────
-let esperando     = [];
-let overlayActive = false;
-let overlayTimer  = null;
-let videos        = [];
-let carouselIdx   = 0;
-let carouselTimer = null;
-let started       = false;
+let esperando       = [];
+let enConsultorio   = [];
+let overlayActive   = false;
+let overlayTimer    = null;
+let videos          = [];
+let carouselIdx     = 0;
+let currentVideoUrl = '';
+let started         = false;
 
 // ── Init ──────────────────────────────────────────────────────
 function initDisplay() {
@@ -103,12 +208,10 @@ function initDisplay() {
   started = true;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   document.getElementById('start-overlay').remove();
-  initSocket();
-  loadVideos();
   updateClock();
   setInterval(updateClock, 1000);
-
-  // Confirmar que el audio funciona al activar
+  loadVideos();
+  initSocket();
   speak('Sistema listo');
 }
 
@@ -128,74 +231,80 @@ function initSocket() {
     const today = new Date().toISOString().slice(0, 10);
     const res   = await fetch(`/api/pacientes?fecha=${today}`);
     const all   = await res.json();
-    esperando   = all.filter(p => p.estado === 'esperando');
-    renderDisplay();
+    esperando     = all.filter(p => p.estado === 'esperando');
+    enConsultorio = all.filter(p => p.estado === 'llamado');
+    renderPatients();
   });
 
   socket.on('pacientes:updated', ({ pacientes }) => {
-    esperando = pacientes.filter(p => p.estado === 'esperando');
-    renderDisplay();
+    esperando     = pacientes.filter(p => p.estado === 'esperando');
+    enConsultorio = pacientes.filter(p => p.estado === 'llamado');
+    if (!overlayActive) renderPatients();
   });
 
   socket.on('paciente:llamado', ({ nombre, consultorio, licenciado }) => {
     playDing();
+    pauseCurrentVideo();
     showOverlay(nombre, consultorio, licenciado);
     speak(`${nombre}, por favor pasar al ${consultorio}, con ${licenciado}`);
   });
-  // socket.io reconecta automáticamente — no crear nueva instancia en disconnect
 }
 
-// ── Render ────────────────────────────────────────────────────
-function renderDisplay() {
+// ── Render pacientes (#panel-pacientes únicamente) ────────────
+function renderPatients() {
   const list    = document.getElementById('patient-list');
-  const wrap    = document.getElementById('patient-list-wrap');
   const noP     = document.getElementById('no-patients');
-  const carousel = document.getElementById('carousel-wrap');
-
-  if (overlayActive) return;
+  const conList = document.getElementById('consultorio-list');
+  const noC     = document.getElementById('no-en-consultorio');
 
   if (esperando.length > 0) {
-    carousel.classList.add('hidden');
-    stopCarousel();
     noP.classList.add('hidden');
-    wrap.classList.remove('hidden');
     list.innerHTML = esperando.map(p => `
       <div class="patient-card">
         <div>
           <div class="patient-name">${p.nombre}</div>
-          <div class="patient-info">
-            Consultorio <span>${p.consultorio}</span> &nbsp;·&nbsp;
-            Lic. <span>${p.licenciado_nombre}</span>
-          </div>
+          <div class="patient-info">Lic. <span>${p.licenciado_nombre}</span></div>
         </div>
         <span class="badge badge-esperando">En espera</span>
       </div>
     `).join('');
   } else {
-    wrap.classList.add('hidden');
-    noP.classList.add('hidden');
-    if (videos.length > 0) {
-      carousel.classList.remove('hidden');
-      startCarousel();
-    } else {
-      carousel.classList.add('hidden');
-      noP.classList.remove('hidden');
-    }
+    list.innerHTML = '';
+    noP.classList.remove('hidden');
+  }
+
+  if (enConsultorio.length > 0) {
+    noC.classList.add('hidden');
+    conList.innerHTML = enConsultorio.map(p => `
+      <div class="en-consultorio-card">
+        <div>
+          <div class="ec-name">${p.nombre}</div>
+          <div class="ec-info">
+            <span>${p.consultorio_actual_nombre || '—'}</span>
+            &nbsp;·&nbsp; Lic. <span>${p.licenciado_nombre}</span>
+          </div>
+        </div>
+        <span class="ec-badge">En atención</span>
+      </div>
+    `).join('');
+  } else {
+    conList.innerHTML = '';
+    noC.classList.remove('hidden');
   }
 }
 
-// ── Overlay de llamado ────────────────────────────────────────
+// ── Overlay ───────────────────────────────────────────────────
 function showOverlay(nombre, consultorio, licenciado) {
   clearTimeout(overlayTimer);
   overlayActive = true;
 
   document.getElementById('overlay-name').textContent   = nombre;
   document.getElementById('overlay-detail').textContent =
-    `Consultorio ${consultorio} · Lic. ${licenciado}`;
+    `${consultorio} · Lic. ${licenciado}`;
 
   const bar = document.getElementById('overlay-bar');
   bar.style.animation = 'none';
-  bar.offsetHeight; // reflow
+  bar.offsetHeight;
   bar.style.animation = 'progressBar 10s linear forwards';
 
   document.getElementById('call-overlay').classList.remove('hidden');
@@ -203,61 +312,75 @@ function showOverlay(nombre, consultorio, licenciado) {
   overlayTimer = setTimeout(() => {
     document.getElementById('call-overlay').classList.add('hidden');
     overlayActive = false;
-    renderDisplay();
+    renderPatients();
+    resumeCurrentVideo();
   }, 10000);
 }
 
-// ── Carrusel ──────────────────────────────────────────────────
+// ── URL helper ────────────────────────────────────────────────
+function toDirectUrl(url) {
+  // Google Drive /file/d/ID/... → descarga directa reproducible como <video src>
+  const m = url.match(/\/file\/d\/([^/?#]+)/);
+  if (m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;
+  return url; // MP4 directo, /videos/archivo.mp4, etc.
+}
+
+// ── Carrusel — solo <video> nativo, sin iframes ───────────────
 async function loadVideos() {
-  const res = await fetch('/api/videos?activo=true');
-  videos    = await res.json();
-}
+  try {
+    const res = await fetch('/api/videos?activo=true');
+    videos = await res.json();
+  } catch (e) { videos = []; }
 
-function isYoutube(url) {
-  return url.includes('youtube.com') || url.includes('youtu.be');
-}
+  const vid   = document.getElementById('carousel-video');
+  const noVid = document.getElementById('no-video');
 
-function youtubeEmbedUrl(url) {
-  const m = url.match(/(?:v=|youtu\.be\/|embed\/)([^&?/]+)/);
-  if (!m) return url;
-  return `https://www.youtube.com/embed/${m[1]}?autoplay=1&mute=1&controls=0&loop=1&playlist=${m[1]}&modestbranding=1`;
-}
+  if (!videos.length) {
+    noVid.classList.remove('hidden');
+    return;
+  }
+  noVid.classList.add('hidden');
 
-function startCarousel() {
-  if (!videos.length) return;
-  playVideoAt(carouselIdx % videos.length);
-}
+  if (videos.length === 1) {
+    // Un solo video: loop nativo del tag, sin recargas
+    vid.loop = true;
+  } else {
+    // Múltiples videos: avanzar al terminar cada uno
+    vid.loop = false;
+    vid.addEventListener('ended', () => playVideoAt(carouselIdx + 1));
+  }
 
-function stopCarousel() {
-  clearTimeout(carouselTimer);
-  const vid = document.getElementById('carousel-video');
-  const ifr = document.getElementById('carousel-iframe');
-  vid.pause(); vid.src = '';
-  ifr.src = '';
-  vid.style.display = 'none';
-  ifr.style.display = 'none';
+  // Si el video falla (URL inaccesible), intentar el siguiente
+  vid.addEventListener('error', () => {
+    if (videos.length > 1) setTimeout(() => playVideoAt(carouselIdx + 1), 2000);
+  });
+
+  playVideoAt(0);
 }
 
 function playVideoAt(idx) {
-  if (!videos.length || overlayActive || esperando.length > 0) return;
-  carouselIdx = idx;
-  const v   = videos[idx];
+  if (!videos.length) return;
+  carouselIdx = idx % videos.length;
+  const url = toDirectUrl(videos[carouselIdx].url);
   const vid = document.getElementById('carousel-video');
-  const ifr = document.getElementById('carousel-iframe');
-
-  if (isYoutube(v.url)) {
-    vid.style.display = 'none'; vid.pause(); vid.src = '';
-    ifr.style.display = 'block';
-    ifr.src = youtubeEmbedUrl(v.url);
-    clearTimeout(carouselTimer);
-    carouselTimer = setTimeout(() => playVideoAt((idx + 1) % videos.length), 30000);
-  } else {
-    ifr.style.display = 'none'; ifr.src = '';
-    vid.style.display = 'block';
-    vid.src = v.url;
-    vid.play().catch(() => {});
-    vid.onended = () => playVideoAt((idx + 1) % videos.length);
+  // Solo cambiar src si es un video diferente — evita recargas en loop de 1 video
+  if (currentVideoUrl !== url) {
+    currentVideoUrl = url;
+    vid.src = url;
+    vid.load();
   }
+  vid.play().catch(() => {});
+}
+
+// ── Pause / Resume — control directo, sin postMessage ────────
+function pauseCurrentVideo() {
+  if (!videos.length) return;
+  document.getElementById('carousel-video').pause();
+}
+
+function resumeCurrentVideo() {
+  if (!videos.length) return;
+  document.getElementById('carousel-video').play().catch(() => {});
 }
 </script>
 </body>

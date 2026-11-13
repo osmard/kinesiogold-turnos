@@ -24,7 +24,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve logos from project root
 ['LogoKinesioGoldBlanco.jpeg', 'LogoKinesioGoldNegro.jpeg'].forEach(f =>
   app.get(`/${f}`, (req, res) => res.sendFile(path.join(__dirname, f)))
 );
@@ -37,8 +36,11 @@ const toDate = (v) => {
 
 async function emitPacientes(fecha) {
   const { rows } = await pool.query(
-    `SELECT p.*, l.nombre AS licenciado_nombre, l.consultorio
-     FROM pacientes_dia p JOIN licenciados l ON p.licenciado_id = l.id
+    `SELECT p.*, l.nombre AS licenciado_nombre,
+            c.nombre AS consultorio_actual_nombre, c.numero AS consultorio_actual_numero
+     FROM pacientes_dia p
+     JOIN licenciados l ON p.licenciado_id = l.id
+     LEFT JOIN consultorios c ON p.consultorio_actual = c.id
      WHERE p.fecha = $1
      ORDER BY p.hora_turno NULLS LAST, p.id`,
     [fecha]
@@ -57,10 +59,10 @@ app.get('/api/licenciados', async (req, res) => {
 
 app.post('/api/licenciados', async (req, res) => {
   try {
-    const { nombre, consultorio } = req.body;
+    const { nombre } = req.body;
     const { rows } = await pool.query(
-      'INSERT INTO licenciados (nombre, consultorio) VALUES ($1,$2) RETURNING *',
-      [nombre, consultorio]
+      'INSERT INTO licenciados (nombre) VALUES ($1) RETURNING *',
+      [nombre]
     );
     res.status(201).json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -73,12 +75,52 @@ app.delete('/api/licenciados/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── CONSULTORIOS ─────────────────────────────────────────────────────────────
+
+app.get('/api/consultorios', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM consultorios ORDER BY numero, id');
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/consultorios/disponibles', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM consultorios
+       WHERE id NOT IN (
+         SELECT consultorio_actual FROM pacientes_dia
+         WHERE estado = 'llamado' AND consultorio_actual IS NOT NULL
+       )
+       ORDER BY numero, id`
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/consultorios', async (req, res) => {
+  try {
+    const { nombre, numero } = req.body;
+    const { rows } = await pool.query(
+      'INSERT INTO consultorios (nombre, numero) VALUES ($1,$2) RETURNING *',
+      [nombre, numero]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/consultorios/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM consultorios WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── PACIENTES ─────────────────────────────────────────────────────────────────
-// Calendar endpoint must come BEFORE /:id
 
 app.get('/api/pacientes/calendar', async (req, res) => {
   try {
-    const { month } = req.query; // YYYY-MM
+    const { month } = req.query;
     if (!month) return res.status(400).json({ error: 'month required' });
     const start = `${month}-01`;
     const d = new Date(start + 'T00:00:00Z');
@@ -96,12 +138,38 @@ app.get('/api/pacientes/calendar', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/pacientes/historial', async (req, res) => {
+  try {
+    const { desde, hasta, licenciado_id } = req.query;
+    const params = [];
+    let where = `WHERE p.estado = 'atendido'`;
+    if (desde) { params.push(desde); where += ` AND p.fecha >= $${params.length}`; }
+    if (hasta) { params.push(hasta); where += ` AND p.fecha <= $${params.length}`; }
+    if (licenciado_id) { params.push(licenciado_id); where += ` AND p.licenciado_id = $${params.length}`; }
+    const { rows } = await pool.query(
+      `SELECT p.*, l.nombre AS licenciado_nombre,
+              c.nombre AS consultorio_actual_nombre,
+              EXTRACT(EPOCH FROM (p.hora_atendido - p.hora_llamado))::int AS duracion_seg
+       FROM pacientes_dia p
+       JOIN licenciados l ON p.licenciado_id = l.id
+       LEFT JOIN consultorios c ON p.consultorio_actual = c.id
+       ${where}
+       ORDER BY p.fecha DESC, p.hora_atendido DESC NULLS LAST`,
+      params
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/pacientes', async (req, res) => {
   try {
     const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
     const lic   = req.query.licenciado_id;
-    let q = `SELECT p.*, l.nombre AS licenciado_nombre, l.consultorio
-             FROM pacientes_dia p JOIN licenciados l ON p.licenciado_id = l.id
+    let q = `SELECT p.*, l.nombre AS licenciado_nombre,
+                     c.nombre AS consultorio_actual_nombre, c.numero AS consultorio_actual_numero
+             FROM pacientes_dia p
+             JOIN licenciados l ON p.licenciado_id = l.id
+             LEFT JOIN consultorios c ON p.consultorio_actual = c.id
              WHERE p.fecha = $1`;
     const params = [fecha];
     if (lic) { q += ` AND p.licenciado_id = $2`; params.push(lic); }
@@ -125,7 +193,10 @@ app.post('/api/pacientes', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-const ALLOWED_FIELDS = ['nombre','licenciado_id','fecha','hora_turno','estado','hora_llegada','hora_llamado'];
+const ALLOWED_FIELDS = [
+  'nombre','licenciado_id','fecha','hora_turno','estado',
+  'hora_llegada','hora_llamado','hora_atendido','consultorio_actual'
+];
 
 app.put('/api/pacientes/:id', async (req, res) => {
   try {
@@ -146,10 +217,15 @@ app.put('/api/pacientes/:id', async (req, res) => {
     await emitPacientes(fecha);
     if (p.estado === 'llamado') {
       const { rows: lic } = await pool.query('SELECT * FROM licenciados WHERE id=$1', [p.licenciado_id]);
+      let consultorioNombre = '';
+      if (p.consultorio_actual) {
+        const { rows: con } = await pool.query('SELECT * FROM consultorios WHERE id=$1', [p.consultorio_actual]);
+        if (con.length) consultorioNombre = con[0].nombre;
+      }
       if (lic.length) {
         io.emit('paciente:llamado', {
           nombre:      p.nombre,
-          consultorio: lic[0].consultorio,
+          consultorio: consultorioNombre,
           licenciado:  lic[0].nombre
         });
       }
@@ -253,6 +329,25 @@ app.delete('/api/videos/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ── TIMEOUT AUTOMÁTICO ────────────────────────────────────────────────────────
+
+const TIMEOUT_MIN = parseInt(process.env.TIMEOUT_CONSULTORIO_MIN || '30', 10);
+
+setInterval(async () => {
+  try {
+    const cutoff = new Date(Date.now() - TIMEOUT_MIN * 60 * 1000).toISOString();
+    const { rows } = await pool.query(
+      `UPDATE pacientes_dia
+       SET estado='atendido', hora_atendido=NOW(), consultorio_actual=NULL
+       WHERE estado='llamado' AND hora_llamado < $1
+       RETURNING fecha`,
+      [cutoff]
+    );
+    const fechas = [...new Set(rows.map(r => toDate(r.fecha)))];
+    for (const f of fechas) await emitPacientes(f);
+  } catch (e) { console.error('timeout check error:', e.message); }
+}, 60 * 1000);
 
 // ── START ─────────────────────────────────────────────────────────────────────
 

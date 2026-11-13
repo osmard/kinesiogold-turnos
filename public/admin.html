@@ -14,6 +14,7 @@
   <nav class="nav">
     <a href="/admin.html" class="nav-link active">Turnos</a>
     <a href="/admin-videos.html" class="nav-link">Videos</a>
+    <a href="/admin-historial.html" class="nav-link">Historial</a>
   </nav>
 </header>
 
@@ -25,6 +26,7 @@
     <button class="tab" onclick="switchTab('calendario', this)">Calendario</button>
     <button class="tab" onclick="switchTab('importar', this)">Importar CSV</button>
     <button class="tab" onclick="switchTab('licenciados', this)">Licenciados</button>
+    <button class="tab" onclick="switchTab('consultorios', this)">Consultorios</button>
   </div>
 
   <!-- ── TAB: TURNOS ─────────────────────────────────────── -->
@@ -117,6 +119,34 @@
     </div>
   </div>
 
+  <!-- ── TAB: CONSULTORIOS ────────────────────────────── -->
+  <div id="tab-consultorios" class="tab-content">
+    <div class="card" style="max-width:520px;">
+      <h3>Agregar Consultorio</h3>
+      <form onsubmit="addConsultorio(event)">
+        <div class="form-row">
+          <div class="form-group" style="flex:2;">
+            <label>Nombre *</label>
+            <input type="text" id="con-nombre" placeholder="Ej: Consultorio 4" required>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>Número *</label>
+            <input type="text" id="con-numero" placeholder="Ej: 4" required>
+          </div>
+          <button type="submit" class="btn btn-gold" style="margin-top:20px;">+ Agregar</button>
+        </div>
+      </form>
+    </div>
+    <div class="table-wrap" style="max-width:520px;">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Nombre</th><th>Número</th><th></th></tr>
+        </thead>
+        <tbody id="con-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ── TAB: LICENCIADOS ───────────────────────────────── -->
   <div id="tab-licenciados" class="tab-content">
     <div class="card" style="max-width:560px;">
@@ -127,10 +157,6 @@
             <label>Nombre completo *</label>
             <input type="text" id="lic-nombre" placeholder="Ej: Lic. Ana Torres" required>
           </div>
-          <div class="form-group">
-            <label>Consultorio *</label>
-            <input type="text" id="lic-consultorio" placeholder="Ej: Consultorio 2" required>
-          </div>
           <button type="submit" class="btn btn-gold" style="margin-top:20px;">+ Agregar</button>
         </div>
       </form>
@@ -139,7 +165,7 @@
     <div class="table-wrap" style="max-width:600px;">
       <table>
         <thead>
-          <tr><th>ID</th><th>Nombre</th><th>Consultorio</th><th>Panel</th><th></th></tr>
+          <tr><th>ID</th><th>Nombre</th><th>Panel</th><th></th></tr>
         </thead>
         <tbody id="lic-body"></tbody>
       </table>
@@ -167,8 +193,9 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
   document.getElementById(`tab-${name}`).classList.add('active');
   btn.classList.add('active');
-  if (name === 'calendario') renderCalendar();
-  if (name === 'licenciados') loadLicenciadosTable();
+  if (name === 'calendario')   renderCalendar();
+  if (name === 'licenciados')  loadLicenciadosTable();
+  if (name === 'consultorios') loadConsultoriosTable();
 }
 
 // ── Licenciados ───────────────────────────────────────────────
@@ -178,7 +205,7 @@ async function loadLicenciados() {
   const sel = document.getElementById('lic-select-add');
   sel.innerHTML = '<option value="">— Seleccionar —</option>';
   licenciados.forEach(l => {
-    const o = new Option(`${l.nombre} (${l.consultorio})`, l.id);
+    const o = new Option(l.nombre, l.id);
     sel.appendChild(o);
   });
 }
@@ -190,20 +217,17 @@ async function loadLicenciadosTable() {
     <tr>
       <td>${l.id}</td>
       <td>${l.nombre}</td>
-      <td>${l.consultorio}</td>
       <td><a href="/licenciado.html?id=${l.id}" target="_blank" class="btn btn-outline btn-sm">Abrir panel</a></td>
       <td><button class="btn btn-danger btn-sm" onclick="deleteLicenciado(${l.id})">Eliminar</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--color-text-muted);">Sin licenciados</td></tr>';
+  `).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted);">Sin licenciados</td></tr>';
 }
 
 async function addLicenciado(e) {
   e.preventDefault();
-  const nombre      = document.getElementById('lic-nombre').value.trim();
-  const consultorio = document.getElementById('lic-consultorio').value.trim();
-  await fetch('/api/licenciados', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nombre, consultorio}) });
+  const nombre = document.getElementById('lic-nombre').value.trim();
+  await fetch('/api/licenciados', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nombre}) });
   document.getElementById('lic-nombre').value = '';
-  document.getElementById('lic-consultorio').value = '';
   loadLicenciadosTable();
   loadLicenciados();
 }
@@ -234,7 +258,7 @@ function renderTable(pacientes) {
       <td>${p.hora_turno ? p.hora_turno.slice(0,5) : '—'}</td>
       <td class="bold">${p.nombre}</td>
       <td>${p.licenciado_nombre}</td>
-      <td>${p.consultorio}</td>
+      <td>${p.consultorio_actual_nombre || '—'}</td>
       <td><span class="badge badge-${p.estado}">${p.estado}</span></td>
       <td class="text-sm text-muted">${p.hora_llegada ? new Date(p.hora_llegada).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}) : '—'}</td>
       <td>
@@ -295,6 +319,37 @@ async function importCSV(e) {
     div.innerHTML = `<div class="alert alert-success">✓ ${data.imported} de ${data.total} turnos importados correctamente</div>`;
     loadPacientes();
   }
+}
+
+// ── Consultorios ──────────────────────────────────────────────
+async function loadConsultoriosTable() {
+  const res  = await fetch('/api/consultorios');
+  const cons = await res.json();
+  const tbody = document.getElementById('con-body');
+  tbody.innerHTML = cons.map(c => `
+    <tr>
+      <td>${c.id}</td>
+      <td>${c.nombre}</td>
+      <td>${c.numero}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteConsultorio(${c.id})">Eliminar</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted);">Sin consultorios</td></tr>';
+}
+
+async function addConsultorio(e) {
+  e.preventDefault();
+  const nombre = document.getElementById('con-nombre').value.trim();
+  const numero = document.getElementById('con-numero').value.trim();
+  await fetch('/api/consultorios', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nombre, numero}) });
+  document.getElementById('con-nombre').value = '';
+  document.getElementById('con-numero').value = '';
+  loadConsultoriosTable();
+}
+
+async function deleteConsultorio(id) {
+  if (!confirm('¿Eliminar este consultorio?')) return;
+  await fetch(`/api/consultorios/${id}`, { method:'DELETE' });
+  loadConsultoriosTable();
 }
 
 // ── Calendario ────────────────────────────────────────────────

@@ -22,11 +22,17 @@
   <!-- Agregar video -->
   <div class="card">
     <h3>Agregar Video</h3>
+    <div class="text-muted text-sm" style="margin-bottom:14px;line-height:1.6;">
+      Formatos aceptados:
+      <strong>MP4 directo</strong> — <code>https://servidor.com/video.mp4</code> &nbsp;|&nbsp;
+      <strong>Google Drive</strong> — <code>https://drive.google.com/file/d/ID/view</code> (se convierte automáticamente a descarga directa) &nbsp;|&nbsp;
+      <strong>Railway Volume</strong> — <code>/videos/nombre.mp4</code>
+    </div>
     <form id="add-form" onsubmit="addVideo(event)">
       <div class="form-row">
         <div class="form-group" style="flex:3;">
           <label>URL del video *</label>
-          <input type="url" id="v-url" placeholder="https://youtube.com/watch?v=... o https://cdn.../video.mp4" required>
+          <input type="url" id="v-url" placeholder="https://drive.google.com/file/d/ID/view  o  /videos/archivo.mp4" required>
         </div>
         <div class="form-group" style="flex:0 0 100px;">
           <label>Orden</label>
@@ -110,8 +116,8 @@ async function loadVideos() {
   }
 
   tbody.innerHTML = data.map(v => {
-    const isYT   = v.url.includes('youtube') || v.url.includes('youtu.be');
-    const type   = isYT ? '▶ YouTube' : '🎬 MP4';
+    const isDrive = v.url.includes('drive.google.com');
+    const type    = isDrive ? '☁ Drive' : '🎬 MP4';
     const urlShort = v.url.length > 60 ? v.url.slice(0, 57) + '...' : v.url;
     return `
       <tr id="row-${v.id}">

@@ -5,44 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KinesioGold — Panel Licenciado</title>
   <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 500;
+    }
+    .modal-box {
+      background: var(--color-secondary); border: 1px solid var(--color-accent);
+      border-radius: var(--radius); padding: 32px; min-width: 320px; max-width: 420px; width: 90%;
+    }
+    .modal-box h3 { color: var(--color-accent); font-size: 1rem; margin-bottom: 20px; text-transform: uppercase; letter-spacing: .06em; }
+    .modal-box select { width: 100%; margin-bottom: 20px; }
+    .selector-screen {
+      position: fixed; inset: 0; background: var(--color-primary);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+      z-index: 600;
+    }
+    .selector-screen img { height: 80px; }
+    .selector-screen h2 { font-size: 1.3rem; font-weight: 700; color: var(--color-accent); }
+    .selector-screen select { min-width: 280px; }
+    .selector-screen .btn { min-width: 160px; justify-content: center; }
+  </style>
 </head>
 <body>
 
-<header class="lic-header">
+<!-- Pantalla de selección de licenciado -->
+<div class="selector-screen" id="selector-screen">
+  <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold">
+  <h2>¿Quién sos?</h2>
+  <select id="lic-selector">
+    <option value="">— Seleccionar licenciado —</option>
+  </select>
+  <button class="btn btn-gold" onclick="entrar()">Entrar</button>
+</div>
+
+<header class="lic-header" id="lic-header" style="display:none;">
   <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold" class="logo">
   <div>
-    <div class="lic-title" id="lic-name">Cargando...</div>
-    <div class="lic-sub" id="lic-consultorio"></div>
+    <div class="lic-title" id="lic-name"></div>
   </div>
   <div style="margin-left:auto;text-align:right;">
     <div id="lic-clock" style="font-size:1.6rem;font-weight:800;color:var(--color-accent);"></div>
     <div class="text-muted text-sm" id="lic-date"></div>
   </div>
+  <button class="btn btn-outline btn-sm" onclick="cambiarLicenciado()" style="margin-left:16px;">Cambiar</button>
 </header>
 
-<div style="padding:20px 32px 0;">
+<div style="padding:20px 32px 0;" id="lic-main" style="display:none;">
   <div class="flex gap-8" style="align-items:center;margin-bottom:16px;">
     <span class="text-muted text-sm">Pacientes pendientes hoy</span>
     <span id="count-badge" class="badge badge-esperando" style="display:none;">0</span>
   </div>
 </div>
 
-<div id="patient-grid" class="lic-grid"></div>
+<div id="patient-grid" class="lic-grid" style="display:none;"></div>
 
 <div id="no-patients" class="no-patients hidden" style="height:50vh;">
   <span style="font-size:2.5rem;opacity:0.2;">✓</span>
   <span style="margin-top:8px;">Sin pacientes pendientes</span>
 </div>
 
+<!-- Modal selección de consultorio -->
+<div class="modal-backdrop hidden" id="call-modal">
+  <div class="modal-box">
+    <h3>Seleccionar consultorio</h3>
+    <select id="modal-consultorio">
+      <option value="">Cargando...</option>
+    </select>
+    <div class="flex gap-8">
+      <button class="btn btn-outline" style="flex:1;justify-content:center;" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-gold" style="flex:1;justify-content:center;" onclick="confirmarLlamar()">Llamar</button>
+    </div>
+  </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const params = new URLSearchParams(location.search);
-const licId  = parseInt(params.get('id'));
-
-if (!licId) {
-  document.body.innerHTML = '<div style="padding:60px;text-align:center;font-size:1.2rem;color:#E53935;">URL inválida. Usá /licenciado.html?id=X</div>';
-  throw new Error('No licenciado id');
-}
+let licId    = parseInt(params.get('id')) || parseInt(sessionStorage.getItem('licId')) || 0;
+let pendingCallId = null;
 
 // ── Clock ─────────────────────────────────────────────────────
 function updateClock() {
@@ -55,7 +97,42 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 1000);
 
-// ── Cargar pacientes desde servidor ───────────────────────────
+// ── Selector de licenciado ────────────────────────────────────
+async function loadSelector() {
+  const res  = await fetch('/api/licenciados');
+  const lics = await res.json();
+  const sel  = document.getElementById('lic-selector');
+  sel.innerHTML = '<option value="">— Seleccionar licenciado —</option>';
+  lics.forEach(l => {
+    const o = new Option(l.nombre, l.id);
+    sel.appendChild(o);
+  });
+  if (licId) sel.value = licId;
+}
+
+function entrar() {
+  const sel = document.getElementById('lic-selector');
+  const id  = parseInt(sel.value);
+  if (!id) return;
+  licId = id;
+  sessionStorage.setItem('licId', id);
+  if (params.get('id') !== String(id)) {
+    history.replaceState(null, '', `?id=${id}`);
+  }
+  init();
+}
+
+function cambiarLicenciado() {
+  sessionStorage.removeItem('licId');
+  licId = 0;
+  document.getElementById('selector-screen').style.display = 'flex';
+  document.getElementById('lic-header').style.display = 'none';
+  document.getElementById('lic-main').style.display   = 'none';
+  document.getElementById('patient-grid').style.display = 'none';
+  document.getElementById('no-patients').classList.add('hidden');
+}
+
+// ── Cargar pacientes ──────────────────────────────────────────
 async function loadPacientes() {
   const today = new Date().toISOString().slice(0, 10);
   const res   = await fetch(`/api/pacientes?fecha=${today}&licenciado_id=${licId}`);
@@ -87,47 +164,61 @@ function render(lista) {
 
     const yaLlamado = p.estado === 'llamado';
     const estiloBorde = yaLlamado ? 'border:1.5px solid var(--color-accent);' : '';
+    const consNombre  = p.consultorio_actual_nombre ? `<div class="text-sm text-muted" style="margin-top:4px;">Consultorio: <span style="color:var(--color-accent);">${p.consultorio_actual_nombre}</span></div>` : '';
 
     const botones = yaLlamado
       ? `<div class="flex gap-8">
-           <button class="btn btn-outline" onclick="volverLlamar(${p.id}, this)">🔁 Volver a llamar</button>
-           <button class="btn btn-success" onclick="marcarListo(${p.id}, this)">✓ Listo</button>
+           <button class="btn btn-outline" onclick="abrirModal(${p.id})">🔁 Volver a llamar</button>
+           <button class="btn btn-success" onclick="marcarListo(${p.id}, this)">✓ Atendido</button>
          </div>`
-      : `<button class="btn btn-gold" onclick="llamar(${p.id}, this)">📢 Llamar</button>`;
+      : `<button class="btn btn-gold" onclick="abrirModal(${p.id})">📢 Llamar</button>`;
 
     return `
       <div class="lic-card" id="card-${p.id}" style="${estiloBorde}">
         <div>
           <div class="lic-card-name">${p.nombre}</div>
           <div class="lic-card-time text-muted">${hora}</div>
+          ${consNombre}
         </div>
         ${botones}
       </div>`;
   }).join('');
 }
 
-// ── Acciones ──────────────────────────────────────────────────
-async function llamar(id, btn) {
-  btn.disabled = true;
-  btn.textContent = 'Llamando...';
-  await fetch(`/api/pacientes/${id}`, {
-    method:  'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ estado: 'llamado', hora_llamado: new Date().toISOString() })
-  });
-  await loadPacientes();
+// ── Modal consultorio ─────────────────────────────────────────
+async function abrirModal(id) {
+  pendingCallId = id;
+  const res  = await fetch('/api/consultorios/disponibles');
+  const cons = await res.json();
+  const sel  = document.getElementById('modal-consultorio');
+  if (!cons.length) {
+    sel.innerHTML = '<option value="">Sin consultorios disponibles</option>';
+  } else {
+    sel.innerHTML = cons.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+  }
+  document.getElementById('call-modal').classList.remove('hidden');
 }
 
-async function volverLlamar(id, btn) {
-  btn.disabled = true;
-  btn.textContent = 'Llamando...';
-  await fetch(`/api/pacientes/${id}`, {
+function closeModal() {
+  pendingCallId = null;
+  document.getElementById('call-modal').classList.add('hidden');
+}
+
+async function confirmarLlamar() {
+  const consulId = parseInt(document.getElementById('modal-consultorio').value);
+  if (!consulId || !pendingCallId) return;
+  const callId = pendingCallId;
+  closeModal();
+  await fetch(`/api/pacientes/${callId}`, {
     method:  'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ estado: 'llamado', hora_llamado: new Date().toISOString() })
+    body:    JSON.stringify({
+      estado:             'llamado',
+      hora_llamado:       new Date().toISOString(),
+      consultorio_actual: consulId
+    })
   });
-  btn.disabled = false;
-  btn.textContent = '🔁 Volver a llamar';
+  await loadPacientes();
 }
 
 async function marcarListo(id, btn) {
@@ -135,12 +226,12 @@ async function marcarListo(id, btn) {
   await fetch(`/api/pacientes/${id}`, {
     method:  'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ estado: 'atendido' })
+    body:    JSON.stringify({ estado: 'atendido', hora_atendido: new Date().toISOString(), consultorio_actual: null })
   });
   await loadPacientes();
 }
 
-// ── Socket — solo recarga la lista ───────────────────────────
+// ── Socket ────────────────────────────────────────────────────
 function initSocket() {
   const socket = io({ reconnection: true });
   socket.on('pacientes:updated', loadPacientes);
@@ -152,17 +243,27 @@ async function init() {
   const lics = await res.json();
   const lic  = lics.find(l => l.id === licId);
   if (!lic) {
-    document.body.innerHTML = '<div style="padding:60px;text-align:center;color:#E53935;">Licenciado no encontrado</div>';
+    alert('Licenciado no encontrado');
+    cambiarLicenciado();
     return;
   }
   document.title = `KinesioGold — ${lic.nombre}`;
-  document.getElementById('lic-name').textContent       = lic.nombre;
-  document.getElementById('lic-consultorio').textContent = `Consultorio ${lic.consultorio}`;
+  document.getElementById('lic-name').textContent        = lic.nombre;
+  document.getElementById('selector-screen').style.display = 'none';
+  document.getElementById('lic-header').style.display    = 'flex';
+  document.getElementById('lic-main').style.display      = 'block';
+  document.getElementById('patient-grid').style.display  = 'grid';
   await loadPacientes();
   initSocket();
 }
 
-init();
+// Arrancar: si ya hay licId guardado, entrar directo
+(async () => {
+  await loadSelector();
+  if (licId) {
+    init();
+  }
+})();
 </script>
 </body>
 </html>

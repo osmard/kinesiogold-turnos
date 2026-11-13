@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KinesioGold — Historial</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <img src="/LogoKinesioGoldBlanco.jpeg" alt="KinesioGold" class="logo">
+  <span class="header-title">Historial de Atenciones</span>
+  <nav class="nav">
+    <a href="/admin.html" class="nav-link">Turnos</a>
+    <a href="/admin-videos.html" class="nav-link">Videos</a>
+    <a href="/admin-historial.html" class="nav-link active">Historial</a>
+  </nav>
+</header>
+
+<main class="main">
+
+  <div class="card">
+    <h3>Filtros</h3>
+    <div class="form-row" style="align-items:flex-end;">
+      <div class="form-group">
+        <label>Desde</label>
+        <input type="date" id="desde-input">
+      </div>
+      <div class="form-group">
+        <label>Hasta</label>
+        <input type="date" id="hasta-input">
+      </div>
+      <div class="form-group">
+        <label>Licenciado</label>
+        <select id="lic-filter">
+          <option value="">— Todos —</option>
+        </select>
+      </div>
+      <button class="btn btn-gold" style="margin-top:0;" onclick="loadHistorial()">Buscar</button>
+      <button class="btn btn-outline" style="margin-top:0;" onclick="resetFiltros()">Limpiar</button>
+    </div>
+    <div id="resumen" class="text-muted text-sm" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Nombre</th>
+          <th>Licenciado</th>
+          <th>Consultorio</th>
+          <th>Llamado</th>
+          <th>Atendido</th>
+          <th>Duración</th>
+        </tr>
+      </thead>
+      <tbody id="historial-body">
+        <tr><td colspan="7" style="text-align:center;color:var(--color-text-muted);padding:32px;">Seleccioná un rango de fechas</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+function fmtTime(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d + 'T00:00:00').toLocaleDateString('es-PY', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function fmtDuracion(seg) {
+  if (!seg || seg < 0) return '—';
+  const m = Math.floor(seg / 60);
+  const s = seg % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+async function loadLicenciados() {
+  const res  = await fetch('/api/licenciados');
+  const lics = await res.json();
+  const sel  = document.getElementById('lic-filter');
+  lics.forEach(l => {
+    const o = new Option(l.nombre, l.id);
+    sel.appendChild(o);
+  });
+}
+
+async function loadHistorial() {
+  const desde = document.getElementById('desde-input').value;
+  const hasta = document.getElementById('hasta-input').value;
+  const lic   = document.getElementById('lic-filter').value;
+  const params = new URLSearchParams();
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+  if (lic)   params.set('licenciado_id', lic);
+
+  const res  = await fetch(`/api/pacientes/historial?${params}`);
+  const data = await res.json();
+  render(data);
+}
+
+function render(rows) {
+  const tbody = document.getElementById('historial-body');
+  const resumen = document.getElementById('resumen');
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--color-text-muted);padding:32px;">Sin resultados</td></tr>';
+    resumen.textContent = '';
+    return;
+  }
+
+  const totalMin = rows.reduce((acc, r) => acc + (r.duracion_seg || 0), 0) / 60;
+  resumen.textContent = `${rows.length} atenciones · Tiempo total: ${Math.round(totalMin)} min`;
+
+  tbody.innerHTML = rows.map(p => `
+    <tr>
+      <td class="text-sm">${fmtDate(p.fecha?.slice ? p.fecha.slice(0,10) : p.fecha)}</td>
+      <td class="bold">${p.nombre}</td>
+      <td>${p.licenciado_nombre}</td>
+      <td>${p.consultorio_actual_nombre || '—'}</td>
+      <td class="text-sm text-muted">${fmtTime(p.hora_llamado)}</td>
+      <td class="text-sm text-muted">${fmtTime(p.hora_atendido)}</td>
+      <td class="text-sm">${fmtDuracion(p.duracion_seg)}</td>
+    </tr>
+  `).join('');
+}
+
+function resetFiltros() {
+  document.getElementById('desde-input').value = '';
+  document.getElementById('hasta-input').value = '';
+  document.getElementById('lic-filter').value  = '';
+  document.getElementById('historial-body').innerHTML =
+    '<tr><td colspan="7" style="text-align:center;color:var(--color-text-muted);padding:32px;">Seleccioná un rango de fechas</td></tr>';
+  document.getElementById('resumen').textContent = '';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('desde-input').value = today;
+  document.getElementById('hasta-input').value = today;
+  loadLicenciados().then(loadHistorial);
+});
+</script>
+</body>
+</html>
